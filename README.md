@@ -11,12 +11,12 @@ CodeFilesToTxt simplifies code sharing by merging `.cpp` and `.h` files into a s
 
 ## 📑 Table of Contents
 
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage Guide](#usage-guide)
-- [Contributing](#contributing)
-- [License](#license)
+- [Features](#-features)
+- [Requirements](#-requirements)
+- [Installation](#-installation)
+- [Usage Guide](#-usage-guide)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ## ✨ Features
 
