@@ -1,0 +1,705 @@
+Analytics.h
+#pragma once
+#include "Manager.h"
+
+class Analytics
+{
+public:
+	Analytics(Manager* p);
+	int GetAmountAdults() const;
+	int GetAmountChildren() const;
+
+private:
+	Manager* m_manager;
+};
+
+
+Analytics.cpp
+#include "Analytics.h"
+
+Analytics::Analytics(Manager* p)
+	: m_manager(p)
+{}
+
+int Analytics::GetAmountAdults() const
+{
+	return static_cast<int>(m_manager->GetAllAdults().size());
+}
+
+int Analytics::GetAmountChildren() const
+{
+	return static_cast<int>(m_manager->AllChildren().size());
+}
+
+
+Cat.h
+#pragma once
+#include <string>
+#include "IEntity.h"
+#include "CsvSerializer.h"
+#include "Split.h"
+#include <fstream>
+
+struct Cat : IEntity
+{
+	std::string name;
+};
+
+template<>
+inline std::vector<Cat> Deserialize(const std::filesystem::path& filePath)
+{
+	std::vector<Cat> result;
+	std::ifstream file(filePath);
+	auto lines = Split(file, NEW_LINE);
+	for(const auto& line : lines)
+	{
+		std::istringstream is(line);
+		auto parts = Split(is, CSV_DELEMITER);
+		auto id = std::stoi(parts[0]);
+		auto name = parts[1];
+		result.push_back(Cat{id, name});
+	}
+	return result;
+}
+
+template<>
+inline void Save(const std::vector<Cat>& items, const std::filesystem::path& filePath)
+{
+	std::ofstream file(filePath);
+	for(auto const& item : items)
+	{
+		file << item.id << CSV_DELEMITER << item.name << NEW_LINE;
+	}
+}
+
+
+CatFactory.h
+#pragma once
+#include "Cat.h"
+#include "IConfigurator.h"
+
+class CatFactory
+{
+public:
+	CatFactory(IConfigurator* config);
+	~CatFactory();
+	Cat Create(const std::string& name);
+
+private:
+	int m_nextId;
+	IConfigurator* m_config;
+};
+
+
+CatFactory.cpp
+#include "CatFactory.h"
+
+CatFactory::CatFactory(IConfigurator* config)
+	: m_nextId(config->GetInt("Cat", "LastId", 1))
+	, m_config(config)
+{}
+
+CatFactory::~CatFactory()
+{
+	m_config->SetInt("Cat", "LastId", m_nextId);
+}
+
+Cat CatFactory::Create(const std::string& name)
+{
+	return {m_nextId++, name};
+}
+
+
+CatManager.h
+#pragma once
+#include "Cat.h"
+#include "IRepository.h"
+
+class CatManager
+{
+public:
+	CatManager(IRepository<Cat>* r);
+	void Append(const Cat& c);
+	void Delete(const Cat& c);
+
+private:
+	IRepository<Cat>* m_repo;
+};
+
+
+CatManager.cpp
+#include "CatManager.h"
+
+CatManager::CatManager(IRepository<Cat>* r)
+	: m_repo(r)
+{}
+
+void CatManager::Append(const Cat& c)
+{
+	m_repo->Add(c);
+}
+
+void CatManager::Delete(const Cat& c)
+{
+	m_repo->Erase(c);
+}
+
+
+Cmd.h
+#pragma once
+#include <vector>
+#include <string>
+#include <functional>
+
+template<typename... Args>
+using Event = std::function<void(Args...)>;
+
+// command line parser
+class Cmd
+{
+public:
+	void Run(const std::vector<std::string>& args);
+
+	Event<const std::string&, int> m_OnAddPerson;
+	Event<int> RemovePersonCB;
+	Event<> OnNoArgs;
+};
+
+
+Cmd.cpp
+#include "Cmd.h"
+
+void Cmd::Run(const std::vector<std::string>& args)
+{
+	if(args.empty())
+	{
+		OnNoArgs();
+		return;
+	}
+	else if(args.size() == 2)
+	{
+		auto age = std::stoi(args[1]);
+		m_OnAddPerson(args[0], age);
+	}
+	else if(args.size() == 1)
+	{
+		auto id = std::stoi(args[0]);
+		RemovePersonCB(id);
+	}
+}
+
+
+CsvSerializer.h
+#pragma once
+#include <vector>
+#include <filesystem>
+
+// Only prototypes, you have to implement the specializations
+template<typename T>
+std::vector<T> Deserialize(const std::filesystem::path& filePath);
+template<typename T>
+void Save(const std::vector<T>& items, const std::filesystem::path& filePath);
+const char CSV_DELEMITER = ',';
+
+class CsvSerializer
+{
+public:
+	template<typename T>
+	static std::vector<T> Deserialize(const std::filesystem::path& filePath)
+	{
+		return ::Deserialize<T>(filePath);
+	}
+	template<typename T>
+	static void Save(const std::vector<T>& items, const std::filesystem::path& filePath)
+	{
+		::Save(items, filePath);
+	}
+};
+
+
+IConfigurator.h
+#pragma once
+#include <string>
+
+struct IConfigurator
+{
+	virtual void SetInt(const std::string& category, const std::string& key, int value) = 0;
+	virtual void SetDouble(const std::string& category, const std::string& key, double value) = 0;
+	virtual void Put(const std::string& category, const std::string& key, const std::string& value) = 0;
+	virtual int GetInt(const std::string& category, const std::string& key, int defaultValue) = 0;
+	virtual double GetDouble(const std::string& category, const std::string& key) = 0;
+	virtual std::string Retrieve(const std::string& category, const std::string& key) = 0;
+	virtual ~IConfigurator() = default;
+};
+
+
+IEntity.h
+#pragma once
+
+struct IEntity
+{
+	int id;
+};
+
+
+IRepository.h
+#pragma once
+#include <functional>
+
+template<typename T>
+struct IRepository
+{
+	virtual std::vector<T> Get(std::function<bool(const T&)> pred) = 0;
+	virtual void Add(const T&) = 0;
+	virtual void Erase(const T&) = 0;
+	virtual void Update(const T&) = 0;
+	virtual ~IRepository() = default;
+};
+
+
+Logger.h
+#pragma once
+#include <string>
+
+class Logger
+{
+public:
+	void Print(const std::string& msg);
+	std::ostream& Log();
+};
+
+
+Logger.cpp
+#include "Logger.h"
+#include <iostream>
+
+void Logger::Print(const std::string& msg)
+{
+	std::cout << msg << '\n';
+}
+
+std::ostream& Logger::Log()
+{
+	return std::cout;
+}
+
+
+Manager.h
+#pragma once
+#include "IRepository.h"
+#include "IConfigurator.h"
+#include "Person.h"
+#include "Logger.h"
+
+class Manager
+{
+public:
+	Manager(IRepository<Person>* r, IConfigurator* c, Logger* l);
+	void Add(const Person&);
+	void Remove(const Person&);
+	void Update(const Person&);
+	std::vector<Person> AllChildren() const;
+	std::vector<Person> GetAllAdults() const;
+	Person FindPerson(int id) const;
+
+private:
+	IRepository<Person>* m_repo;
+	Logger* m_log;
+	int m_ageThreshold;
+};
+
+
+Manager.cpp
+#include "Manager.h"
+
+Manager::Manager(IRepository<Person>* r, IConfigurator* c, Logger* l)
+	: m_repo(r)
+	, m_log(l)
+	, m_ageThreshold(c->GetInt("Person", "AgeThreshold", 12))
+{}
+
+void Manager::Add(const Person& p)
+{
+	m_repo->Add(p);
+}
+
+void Manager::Remove(const Person& p)
+{
+	m_repo->Erase(p);
+}
+
+void Manager::Update(const Person& p)
+{
+	m_repo->Update(p);
+}
+
+std::vector<Person> Manager::AllChildren() const
+{
+	m_log->Print("GetAllChildren");
+	return m_repo->Get([this](const Person& p) { return p.age < m_ageThreshold; });
+}
+
+std::vector<Person> Manager::GetAllAdults() const
+{
+	m_log->Print("GetAllAdults");
+	return m_repo->Get([this](const Person& p) { return p.age >= m_ageThreshold; });
+}
+
+Person Manager::FindPerson(int id) const
+{
+	m_log->Print("FindPerson");
+	return m_repo->Get([id](const Person& p) { return p.id == id; }).at(0);
+}
+
+
+Person.h
+#pragma once
+#include <string>
+#include <optional>
+#include "Cat.h"
+
+struct Person : IEntity
+{
+	std::string name;
+	int age;
+	std::optional<Cat> cat;
+};
+
+
+PersonCsvSerializer.h
+#pragma once
+#include "CsvSerializer.h"
+#include "Person.h"
+
+template<>
+std::vector<Person> Deserialize(const std::filesystem::path& filePath);
+
+template<>
+void Save(const std::vector<Person>& items, const std::filesystem::path& filePath);
+
+
+PersonCsvSerializer.cpp
+#include "PersonCsvSerializer.h"
+#include <fstream>
+#include "Split.h"
+
+template<>
+std::vector<Person> Deserialize(const std::filesystem::path& filePath)
+{
+	std::vector<Person> result;
+	std::ifstream file(filePath);
+	auto lines = Split(file, NEW_LINE);
+	for(const auto& line : lines)
+	{
+		std::istringstream is(line);
+		auto parts = Split(is, CSV_DELEMITER);
+		auto id = std::stoi(parts[0]);
+		auto name = parts[1];
+		auto age = std::stoi(parts[2]);
+		result.push_back(Person{id, name, age});
+		if(parts.size() > 3)
+		{
+			id = std::stoi(parts[3]);
+			name = parts[4];
+			result.back().cat = Cat{id, name};
+		}
+	}
+	return result;
+}
+
+template<>
+void Save(const std::vector<Person>& items, const std::filesystem::path& filePath)
+{
+	std::ofstream file(filePath);
+	for(auto const& item : items)
+	{
+		file << item.id << CSV_DELEMITER << item.name << CSV_DELEMITER << item.age;
+		if(item.cat)
+		{
+			file << CSV_DELEMITER << item.cat->id << CSV_DELEMITER << item.cat->name;
+		}
+		file << NEW_LINE;
+	}
+}
+
+
+PersonMaker.h
+#pragma once
+#include "IConfigurator.h"
+#include "Person.h"
+
+class PersonMaker
+{
+public:
+	PersonMaker(IConfigurator* config);
+	~PersonMaker();
+	Person Make(const std::string& name, int age);
+
+private:
+	int m_nextId;
+	IConfigurator* m_config;
+};
+
+
+PersonMaker.cpp
+#include "PersonMaker.h"
+
+PersonMaker::PersonMaker(IConfigurator* config)
+	: m_nextId(config->GetInt("Person", "LastId", 1))
+	, m_config(config)
+{}
+
+PersonMaker::~PersonMaker()
+{
+	m_config->SetInt("Person", "LastId", m_nextId);
+}
+
+Person PersonMaker::Make(const std::string& name, int age)
+{
+	return {m_nextId++, name, age};
+}
+
+
+Repository.h
+#pragma once
+
+#include "IRepository.h"
+#include <algorithm>
+#include <iterator>
+#include "CsvSerializer.h"
+#include "Logger.h"
+
+template<typename T>
+class Repository : public IRepository<T>
+{
+public:
+	Repository(IConfigurator* config, Logger* l)
+		: m_rootPath(config->Retrieve("DataStoring", "RootPath"))
+		, m_log(l)
+	{
+		Load();
+	}
+	std::vector<T> Get(std::function<bool(const T&)> pred) override
+	{
+		std::vector<T> result;
+		std::copy_if(begin(m_items), end(m_items), std::back_inserter(result), pred);
+		return result;
+	}
+	void Add(const T& item) override
+	{
+		m_items.push_back(item);
+		Save();
+		m_log->Log() << "New entity " << std::quoted(typeid(T).name()) << " with id " << item.id << " created\n";
+	}
+	void Erase(const T& item) override
+	{
+		auto pos = FindIndexOfItem(item);
+		if(pos != end(m_items))
+		{
+			m_items.erase(pos);
+			Save();
+		}
+		m_log->Log() << "Entity " << std::quoted(typeid(T).name()) << " with id " << item.id << " removed\n";
+	}
+	void Update(const T& item) override
+	{
+		auto pos = FindIndexOfItem(item);
+		if(pos != end(m_items))
+		{
+			*pos = item;
+			Save();
+		}
+		m_log->Log() << "Entity " << std::quoted(typeid(T).name()) << " with id " << item.id << " updated\n";
+	}
+
+private:
+	void Load()
+	{
+		auto path = std::filesystem::absolute(m_rootPath / Filename());
+		if(!std::filesystem::exists(path))
+			return;
+		m_items = CsvSerializer::Deserialize<T>(path);
+	}
+	void Save()
+	{
+		auto path = m_rootPath / Filename();
+		CsvSerializer::Save(m_items, path);
+	}
+	auto FindIndexOfItem(const T& item)
+	{
+		auto byId = [&item](const auto& other) { return item.id == other.id; };
+		return std::find_if(begin(m_items), end(m_items), byId);
+	}
+	std::string Filename() const
+	{
+		// + 7 to skip "struct " from e.g. "struct Person"
+		return std::string(typeid(T).name() + 7) + ".csv";
+	}
+
+private:
+	std::filesystem::path m_rootPath;
+	std::vector<T> m_items;
+	Logger* m_log;
+};
+
+
+Settings.h
+#pragma once
+#include "IConfigurator.h"
+#include <map>
+#include <any>
+
+class Settings : public IConfigurator
+{
+public:
+	Settings();
+	~Settings();
+	void SetInt(const std::string& category, const std::string& key, int value) override;
+	void SetDouble(const std::string& category, const std::string& key, double value) override;
+	void Put(const std::string& category, const std::string& key, const std::string& value) override;
+	int GetInt(const std::string& category, const std::string& key, int defaultValue) override;
+	double GetDouble(const std::string& category, const std::string& key) override;
+	std::string Retrieve(const std::string& category, const std::string& key) override;
+
+private:
+	std::map<std::string, std::any> m_items;
+};
+
+
+Settings.cpp
+#include "Settings.h"
+#include <fstream>
+#include <sstream>
+#include "Split.h"
+
+std::string ComposeKey(const std::string& category, const std::string& key)
+{
+	return category + '.' + key;
+}
+
+const char DELEMITER = ';';
+void WriteTypeAndValue(std::ofstream& out, const std::any* any)
+{
+	if(auto i = std::any_cast<int>(any))
+	{
+		out << "int" << DELEMITER << *i;
+	}
+	else if(auto d = std::any_cast<double>(any))
+	{
+		out << "double" << DELEMITER << *d;
+	}
+	else if(auto s = std::any_cast<std::string>(any))
+	{
+		out << "string" << DELEMITER << *s;
+	}
+}
+
+std::any ReadTypeAndValue(const std::vector<std::string>& parts)
+{
+	auto typeName = parts[1];
+	auto valueStr = parts[2];
+	if(typeName == "int")
+	{
+		return std::make_any<int>(std::stoi(valueStr));
+	}
+	else if(typeName == "double")
+	{
+		return std::make_any<double>(std::stod(valueStr));
+	}
+	else if(typeName == "string")
+	{
+		return std::make_any<std::string>(valueStr);
+	}
+	else
+		throw std::bad_typeid();
+}
+
+Settings::Settings()
+{
+	std::ifstream file("db\\PersonManager.config");
+	auto lines = Split(file, NEW_LINE);
+	for(const auto& line : lines)
+	{
+		std::istringstream is(line);
+		auto parts = Split(is, DELEMITER);
+		auto any = ReadTypeAndValue(parts);
+		m_items[parts[0]] = any;
+	}
+}
+
+Settings::~Settings()
+{
+	std::ofstream file("db\\PersonManager.config");
+	for(const auto& item : m_items)
+	{
+		file << item.first << DELEMITER;
+		WriteTypeAndValue(file, &item.second);
+		file << '\n';
+	}
+}
+
+void Settings::SetInt(const std::string& category, const std::string& key, int value)
+{
+	m_items[ComposeKey(category, key)] = value;
+}
+
+void Settings::SetDouble(const std::string& category, const std::string& key, double value)
+{
+	m_items[ComposeKey(category, key)] = value;
+}
+
+void Settings::Put(const std::string& category, const std::string& key, const std::string& value)
+{
+	m_items[ComposeKey(category, key)] = value;
+}
+
+int Settings::GetInt(const std::string& category, const std::string& key, int defaultValue)
+{
+	if(m_items.contains(ComposeKey(category, key)))
+		return std::any_cast<int>(m_items[ComposeKey(category, key)]);
+	else
+		return defaultValue;
+}
+
+double Settings::GetDouble(const std::string& category, const std::string& key)
+{
+	if(m_items.contains(ComposeKey(category, key)))
+		return std::any_cast<double>(m_items[ComposeKey(category, key)]);
+	else
+		return 0.0;
+}
+
+std::string Settings::Retrieve(const std::string& category, const std::string& key)
+{
+	if(m_items.contains(ComposeKey(category, key)))
+		return std::any_cast<std::string>(m_items[ComposeKey(category, key)]);
+	else
+		return "";
+}
+
+
+Split.h
+#pragma once
+#include <vector>
+#include <string>
+
+const char NEW_LINE = '\n';
+
+std::vector<std::string> Split(std::istream& str, char separator);
+
+
+Split.cpp
+#include "Split.h"
+#include <string>
+#include <istream>
+
+std::vector<std::string> Split(std::istream& str, char separator)
+{
+	std::vector<std::string> result;
+	std::string part;
+	while(std::getline(str, part, separator))
+		result.emplace_back(std::move(part));
+	return result;
+}
+
+
